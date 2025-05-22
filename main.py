@@ -1,12 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from io import BytesIO
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-import calendar
 
 # ------------------- データ読み込み -------------------
 subject_df = pd.read_excel("data/教科一覧.xlsx")
@@ -22,46 +16,11 @@ if 'attendance_data' not in st.session_state:
 
 st.set_page_config(layout="wide")
 st.sidebar.title("メニュー")
-page = st.sidebar.radio("表示を選択してください", ["出席入力", "出席総計", "CSV/PDF出力"])
+page = st.sidebar.radio("表示を選択してください", ["出席入力", "出席総計"])
 
 grades = sorted(students_df["学年"].unique())
 classes = sorted(students_df["組"].unique())
 attendance_options = ["○", "／", "公", "病", "事", "忌", "停", "遅", "早", "保"]
-
-# PDF生成関数（日本語フォント対応）
-def generate_summary_pdf(summary_df, class_name, date_range):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    pdfmetrics.registerFont(UnicodeCIDFont('HeiseiMin-W3'))
-    c.setFont('HeiseiMin-W3', 14)
-    width, height = A4
-
-    c.drawString(20, height - 30, f"{class_name} 出席集計 ({date_range})")
-
-    y = height - 50
-    c.setFont('HeiseiMin-W3', 10)
-    c.drawString(20, y, "| 生徒名         | " + " | ".join(summary_df.columns) + " |")
-    y -= 10
-    c.line(20, y, width - 20, y)
-    y -= 15
-
-    for student, row in summary_df.iterrows():
-        if y < 50:
-            c.showPage()
-            y = height - 50
-            c.setFont('HeiseiMin-W3', 10)
-            c.drawString(20, y, "| 生徒名         | " + " | ".join(summary_df.columns) + " |")
-            y -= 10
-            c.line(20, y, width - 20, y)
-            y -= 15
-
-        line = f"{student:<15} " + " ".join(str(row.get(col, 0)) for col in summary_df.columns)
-        c.drawString(25, y, line)
-        y -= 15
-
-    c.save()
-    buffer.seek(0)
-    return buffer
 
 # ------------------- 出席入力 -------------------
 if page == "出席入力":
@@ -80,7 +39,6 @@ if page == "出席入力":
     with col4:
         selected_period = st.selectbox("時限", ["1限", "2限", "3限", "4限", "5限", "6限"])
 
-    # 曜日推定と時間割参照
     weekday_str = ["月", "火", "水", "木", "金", "土", "日"][selected_date.weekday()]
     tt_row = timetable_df[
         (timetable_df["曜日"] == weekday_str) &
@@ -128,3 +86,56 @@ if page == "出席入力":
         df = pd.DataFrame(attendance_records)
         st.session_state.attendance_data = pd.concat([st.session_state.attendance_data, df], ignore_index=True)
         st.success("保存しました！")
+
+# ------------------- 出席総計 -------------------
+elif page == "出席総計":
+    st.title("出席総計（1日単位集計）")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_grade = st.selectbox("学年", grades, key="sum_grade")
+    with col2:
+        selected_class = st.selectbox("組", classes, key="sum_class")
+    class_name = f"{selected_grade}{selected_class}"
+
+    col3, col4 = st.columns(2)
+    with col3:
+        date_from = st.date_input("開始日", datetime.today().replace(day=1))
+    with col4:
+        date_to = st.date_input("終了日", datetime.today())
+
+    df = st.session_state.attendance_data.copy()
+    df["日付"] = pd.to_datetime(df["日付"])
+
+    filtered_df = df[
+        (df["クラス"] == class_name) &
+        (df["日付"] >= pd.to_datetime(date_from)) &
+        (df["日付"] <= pd.to_datetime(date_to))
+    ]
+
+    if filtered_df.empty:
+        st.info("指定範囲に出席データがありません")
+    else:
+        # 生徒ごとに日単位で集計
+        grouped = filtered_df.groupby(["生徒名", "日付"])["出席状況"].apply(list).reset_index()
+
+        def summarize_day(status_list):
+            if all(s == "○" for s in status_list):
+                return "出席"
+            elif "遅" in status_list:
+                return "遅刻"
+            elif any(s in ["／", "公", "病", "事", "忌", "停", "早", "保"] for s in status_list):
+                return next(s for s in status_list if s in ["／", "公", "病", "事", "忌", "停", "早", "保"])
+            else:
+                return "その他"
+
+        grouped["出席区分"] = grouped["出席状況"].apply(summarize_day)
+        summary = grouped.groupby(["生徒名", "出席区分"]).size().unstack(fill_value=0)
+
+        # 生徒番号順に整列
+        summary = summary.reindex(
+            students_df[(students_df["学年"] == selected_grade) & (students_df["組"] == selected_class)].sort_values("番号")["氏名"].tolist(),
+            fill_value=0
+        )
+
+        st.dataframe(summary)
