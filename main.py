@@ -25,38 +25,36 @@ grades = sorted(students_df["学年"].unique())
 classes = sorted(students_df["組"].unique())
 attendance_options = ["○", "／", "公", "病", "事", "忌", "停", "遅", "早", "保"]
 
-# PDF生成関数
-def generate_attendance_pdf(df, class_name="出席簿"):
+# PDF生成関数（個人別出席集計）
+def generate_summary_pdf(summary_df, class_name, date_range):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
 
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(20, height - 30, f"{class_name} 出席簿")
+    c.drawString(20, height - 30, f"{class_name} 出席集計 ({date_range})")
 
     y = height - 50
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(20, y, "| 日付       | 生徒名         | 出席状況 |")
+    c.drawString(20, y, "| 生徒名         | " + " | ".join(summary_df.columns) + " |")
     y -= 10
     c.line(20, y, width - 20, y)
     y -= 15
 
     c.setFont("Helvetica", 10)
-    for i, row in df.iterrows():
+    for student, row in summary_df.iterrows():
         if y < 50:
             c.showPage()
             y = height - 50
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(20, y, "| 日付       | 生徒名         | 出席状況 |")
+            c.drawString(20, y, "| 生徒名         | " + " | ".join(summary_df.columns) + " |")
             y -= 10
             c.line(20, y, width - 20, y)
             y -= 15
             c.setFont("Helvetica", 10)
 
-        date_str = str(row["日付"])
-        name = row["生徒名"]
-        status = row["出席状況"]
-        c.drawString(25, y, f"{date_str:<12} {name:<15} {status}")
+        line = f"{student:<15} " + " ".join(str(row.get(col, 0)) for col in summary_df.columns)
+        c.drawString(25, y, line)
         y -= 15
 
     c.save()
@@ -113,24 +111,45 @@ if page == "出席入力":
         st.session_state.attendance_data = pd.concat([st.session_state.attendance_data, df], ignore_index=True)
         st.success("保存しました！")
 
-# ------------------- 出席統計 -------------------
+# ------------------- 出席総計 -------------------
 elif page == "出席総計":
-    st.title("週/月別 出席総計")
+    st.title("個人別 出席総計")
     if st.session_state.attendance_data.empty:
         st.info("まだ出席データがありません")
     else:
         df = st.session_state.attendance_data.copy()
         df["日付"] = pd.to_datetime(df["日付"])
-        df["週"] = df["日付"].dt.to_period("W").astype(str)
-        df["月"] = df["日付"].dt.to_period("M").astype(str)
 
-        st.subheader("週別")
-        weekly = df.groupby(["週", "出席状況"]).size().unstack(fill_value=0)
-        st.dataframe(weekly)
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_grade = st.selectbox("学年", grades, key="sum_grade")
+        with col2:
+            selected_class = st.selectbox("組", classes, key="sum_class")
+        class_name = f"{selected_grade}{selected_class}"
 
-        st.subheader("月別")
-        monthly = df.groupby(["月", "出席状況"]).size().unstack(fill_value=0)
-        st.dataframe(monthly)
+        col3, col4 = st.columns(2)
+        with col3:
+            date_from = st.date_input("集計開始日", datetime.today().replace(day=1))
+        with col4:
+            date_to = st.date_input("集計終了日", datetime.today())
+
+        filtered = df[(df["クラス"] == class_name) & (df["日付"] >= pd.to_datetime(date_from)) & (df["日付"] <= pd.to_datetime(date_to))]
+
+        if filtered.empty:
+            st.warning("この条件に該当するデータがありません")
+        else:
+            summary = filtered.groupby(["生徒名", "出席状況"]).size().unstack(fill_value=0).reindex(columns=attendance_options, fill_value=0)
+            st.dataframe(summary)
+
+            if st.button("この集計結果をPDF出力"):
+                date_range = f"{date_from}〜{date_to}"
+                pdf_buffer = generate_summary_pdf(summary, class_name, date_range)
+                st.download_button(
+                    label="PDF出席集計ダウンロード",
+                    data=pdf_buffer,
+                    file_name=f"{class_name}_出席集計.pdf",
+                    mime="application/pdf"
+                )
 
 # ------------------- 出力 -------------------
 elif page == "CSV/PDF出力":
@@ -141,12 +160,3 @@ elif page == "CSV/PDF出力":
         df = st.session_state.attendance_data.copy()
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("CSVダウンロード", data=csv, file_name="出席簿.csv", mime="text/csv")
-
-        if st.button("PDFダウンロード"):
-            pdf_buffer = generate_attendance_pdf(df, class_name="出席簿")
-            st.download_button(
-                label="PDF出席簿ダウンロード",
-                data=pdf_buffer,
-                file_name="出席簿.pdf",
-                mime="application/pdf"
-            )
