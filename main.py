@@ -21,6 +21,9 @@ page = st.sidebar.radio("表示を選択してください", ["📥 出席入力
 grades = sorted(students_df["学年"].unique())
 classes = sorted(students_df["組"].unique())
 
+# 出欠選択肢
+attendance_options = ["○", "／", "公", "病", "事", "忌", "停", "遅", "早", "保"]
+
 # --- 出席入力ページ ---
 if page == "📥 出席入力":
     st.title("📥 出席入力")
@@ -52,14 +55,15 @@ if page == "📥 出席入力":
         (students_df["組"] == selected_class)
     ].sort_values("番号")
 
-    # 出席入力欄
+    # 出席入力欄（○を初期選択）
     st.subheader("🧑‍🎓 出席簿入力")
     attendance_records = []
     for _, row in filtered_students.iterrows():
         student_name = row["氏名"]
         status = st.selectbox(
             f"{student_name} の出席状況",
-            ["出席", "欠席", "遅刻", "早退"],
+            attendance_options,
+            index=0,
             key=f"{class_name}_{student_name}_{selected_date}_{selected_period}"
         )
         attendance_records.append({
@@ -112,5 +116,5 @@ elif page == "📊 出席履歴":
             st.warning("この期間・クラスには出席データがありません。")
         else:
             summary = df_filtered.groupby(["生徒名", "出席状況"]).size().unstack(fill_value=0)
-            summary = summary.reindex(columns=["出席", "欠席", "遅刻", "早退"], fill_value=0)
+            summary = summary.reindex(columns=attendance_options, fill_value=0)
             st.dataframe(summary)
