@@ -23,6 +23,61 @@ grades = sorted(students_df["学年"].unique())
 classes = sorted(students_df["組"].unique())
 attendance_options = ["○", "／", "公", "病", "事", "忌", "停", "遅", "早", "保"]
 
+# ------------------- 出席入力（教師固定） -------------------
+if page == "出席入力（教師固定）":
+    st.title("出席入力（教師固定）")
+    selected_date = st.date_input("日付", datetime.today(), key="teacher_fixed_date")
+    selected_teacher = st.selectbox("教師名を選択", teacher_df["教師名"].tolist(), key="teacher_fixed_name")
+
+    weekday_str = ["月", "火", "水", "木", "金", "土", "日"][selected_date.weekday()]
+    teacher_classes = timetable_df[
+        (timetable_df["曜日"] == weekday_str) &
+        (timetable_df["教師"] == selected_teacher)
+    ].sort_values("時限")
+
+    st.subheader(f"{selected_teacher} の担当一覧（{selected_date.strftime('%Y-%m-%d')} {weekday_str}曜日）")
+    for _, row in teacher_classes.iterrows():
+        selected_period = row['時限']
+        selected_grade = row['学年']
+        selected_class = row['組']
+        selected_subject = row['教科']
+        class_name = f"{selected_grade}{selected_class}"
+
+        key_id = f"{selected_date}_{selected_period}_{class_name}"
+        label = f"{selected_period}：{class_name}（{selected_subject}）"
+
+        with st.expander(label):
+            filtered_students = students_df[(students_df["学年"] == selected_grade) & (students_df["組"] == selected_class)].sort_values("番号")
+            attendance_records = []
+            for _, stu in filtered_students.iterrows():
+                student_name = stu["氏名"]
+                status = st.selectbox(
+                    f"{student_name} の出席状況 ({selected_period})",
+                    attendance_options,
+                    index=0,
+                    key=f"{class_name}_{student_name}_{selected_date}_{selected_period}_teacher"
+                )
+                attendance_records.append({
+                    "クラス": class_name,
+                    "日付": selected_date.strftime("%Y-%m-%d"),
+                    "時限": selected_period,
+                    "教科": selected_subject,
+                    "担当教師": selected_teacher,
+                    "生徒名": student_name,
+                    "出席状況": status
+                })
+            if st.button(f"{class_name} {selected_period} 保存", key=f"save_{key_id}"):
+                existing = st.session_state.attendance_data[
+                    (st.session_state.attendance_data["クラス"] == class_name) &
+                    (st.session_state.attendance_data["日付"] == selected_date.strftime("%Y-%m-%d")) &
+                    (st.session_state.attendance_data["時限"] == selected_period)
+                ]
+                if not existing.empty:
+                    st.warning("すでに保存済みです。削除後に再保存してください。")
+                else:
+                    st.session_state.attendance_data = pd.concat([st.session_state.attendance_data, pd.DataFrame(attendance_records)], ignore_index=True)
+                    st.success(f"{class_name} {selected_period} を保存しました！")
+
 # ------------------- 出席入力 -------------------
 if page == "出席入力":
     st.title("出席入力")
