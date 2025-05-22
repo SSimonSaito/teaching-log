@@ -49,9 +49,21 @@ if page == "出席入力（教師固定）":
         class_name = f"{selected_grade}{selected_class}"
 
         key_id = f"{selected_date}_{selected_period}_{class_name}"
+        saved = any(
+            (st.session_state.attendance_data["クラス"] == class_name) &
+            (st.session_state.attendance_data["日付"] == selected_date.strftime("%Y-%m-%d")) &
+            (st.session_state.attendance_data["時限"] == selected_period)
+        )
         label = f"{selected_period}：{class_name}（{selected_subject}）"
+        if saved:
+            label = f"✅ {label}"
 
-        if st.button(label, key=f"button_{key_id}"):
+                btn_color = "lightgreen" if saved else "white"
+        with st.container():
+            st.markdown(f"<div style='background-color:{btn_color}; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+            if st.button(label, key=f"button_{key_id}"):
+                st.session_state.active_period = key_id
+            st.markdown("</div>", unsafe_allow_html=True)
             st.session_state.active_period = key_id
 
         if st.session_state.active_period == key_id:
@@ -94,7 +106,20 @@ if page == "出席入力（教師固定）":
                     else:
                         st.warning("すでに保存済みです。")
             else:
-                st.info("この授業はすでに保存されています。")
+                if st.button(f"このデータを削除（管理者用）", key=f"delete_{key_id}"):
+                    before = len(st.session_state.attendance_data)
+                    st.session_state.attendance_data = st.session_state.attendance_data[
+                        ~(
+                            (st.session_state.attendance_data["クラス"] == class_name) &
+                            (st.session_state.attendance_data["日付"] == selected_date.strftime("%Y-%m-%d")) &
+                            (st.session_state.attendance_data["時限"] == selected_period)
+                        )
+                    ]
+                    after = len(st.session_state.attendance_data)
+                    st.session_state.teacher_fixed_saved.discard(key_id)
+                    st.success(f"削除しました（{before - after} 件）")
+                else:
+                    st.info("この授業はすでに保存されています。")
 
 # ------------------- 出席入力 -------------------
 if page == "出席入力":
