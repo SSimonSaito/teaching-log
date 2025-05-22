@@ -1,117 +1,116 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
 
-# 出欠区分
-attendance_options = ["○", "／", "公", "病", "事", "忌", "停", "遅", "早", "保"]
+# データファイルの読み込み
+subject_df = pd.read_excel("data/教科一覧.xlsx")
+teacher_df = pd.read_excel("data/教師一覧.xlsx")
+students_df = pd.read_excel("data/生徒一覧.xlsx")
 
-# ファイルパス
-attendance_file = "出席ログ.xlsx"
-subject_file = "教科一覧.xlsx"
-teacher_file = "教師一覧.xlsx"
-student_file = "生徒一覧.xlsx"
+# 初期化
+if 'attendance_data' not in st.session_state:
+    st.session_state.attendance_data = pd.DataFrame(columns=[
+        "クラス", "日付", "時限", "教科", "担当教師", "生徒名", "出席状況"
+    ])
 
-# ログファイルがなければ初期化
-if not os.path.exists(attendance_file):
-    pd.DataFrame(columns=["日付", "学年", "組", "番号", "氏名", "教科", "教師", "出欠"]).to_excel(attendance_file, index=False)
+# ページ構成
+st.set_page_config(layout="wide")
+st.sidebar.title("📋 メニュー")
+page = st.sidebar.radio("表示を選択してください", ["📥 出席入力", "📊 出席履歴"])
 
-# セッションステート
-if 'page' not in st.session_state:
-    st.session_state.page = '入力'
+grades = sorted(students_df["学年"].unique())
+classes = sorted(students_df["組"].unique())
 
-# サイドバー
-page = st.sidebar.radio("表示メニュー", ["入力", "履歴"])
-st.session_state.page = page
+# --- 出席入力ページ ---
+if page == "📥 出席入力":
+    st.title("📥 出席入力")
 
-# データ読み込み
-subject_df = pd.read_excel(subject_file)
-teacher_df = pd.read_excel(teacher_file)
-student_df = pd.read_excel(student_file)
+    # クラス選択
+    col1, col2 = st.columns(2)
+    with col1:
+        selected_grade = st.selectbox("📚 学年を選択", grades, key="input_grade")
+    with col2:
+        selected_class = st.selectbox("🏫 組を選択", classes, key="input_class")
+    class_name = f"{selected_grade}{selected_class}"
 
-if st.session_state.page == "入力":
-    st.title("出席入力")
+    # 日付・時限・教科・教師
+    col3, col4 = st.columns(2)
+    with col3:
+        selected_date = st.date_input("📅 日付を選択", datetime.today())
+    with col4:
+        selected_period = st.selectbox("🕐 時限を選択", ["1限", "2限", "3限", "4限", "5限", "6限"])
 
-    subject = st.selectbox("教科を選択", subject_df["教科名"].unique())
-    teacher = st.selectbox("担当教師を選択", teacher_df["教師名"].unique())
+    col5, col6 = st.columns(2)
+    with col5:
+        selected_subject = st.selectbox("📘 教科を選択", subject_df["教科"].tolist())
+    with col6:
+        selected_teacher = st.selectbox("👨‍🏫 担当教師を選択", teacher_df["教師名"].tolist())
 
-    classes = student_df[['学年', '組']].drop_duplicates().sort_values(by=['学年', '組'])
-    selected_class = st.selectbox("クラスを選択", classes.apply(lambda row: f"{row['学年']}_{row['組']}", axis=1))
-    grade, group = selected_class.split('_')
+    # 該当クラスの生徒抽出
+    filtered_students = students_df[
+        (students_df["学年"] == selected_grade) &
+        (students_df["組"] == selected_class)
+    ].sort_values("番号")
 
-    filtered_students = student_df[(student_df['学年'] == grade) & (student_df['組'] == group)]
-
-    st.subheader(f"{grade} {group} 出席登録")
-    date = st.date_input("日付", datetime.today())
-
-    attendance_data = []
+    # 出席入力欄
+    st.subheader("🧑‍🎓 出席簿入力")
+    attendance_records = []
     for _, row in filtered_students.iterrows():
-        key = f"{row['学年']}_{row['組']}_{row['番号']}"
+        student_name = row["氏名"]
         status = st.selectbox(
-            f"{row['番号']:02d} {row['氏名']}",
-            attendance_options,
-            index=0,
-            key=key
+            f"{student_name} の出席状況",
+            ["出席", "欠席", "遅刻", "早退"],
+            key=f"{class_name}_{student_name}_{selected_date}_{selected_period}"
         )
-        attendance_data.append({
-            "日付": pd.to_datetime(date),
-            "学年": row["学年"],
-            "組": row["組"],
-            "番号": row["番号"],
-            "氏名": row["氏名"],
-            "教科": subject,
-            "教師": teacher,
-            "出欠": status
+        attendance_records.append({
+            "クラス": class_name,
+            "日付": selected_date.strftime("%Y-%m-%d"),
+            "時限": selected_period,
+            "教科": selected_subject,
+            "担当教師": selected_teacher,
+            "生徒名": student_name,
+            "出席状況": status
         })
 
-    if st.button("出席を登録"):
-        df_new = pd.DataFrame(attendance_data)
-        df_log = pd.read_excel(attendance_file)
-        df_log = pd.concat([df_log, df_new], ignore_index=True)
-        df_log.to_excel(attendance_file, index=False)
-        st.success("出席情報を保存しました。")
-
-elif st.session_state.page == "履歴":
-    st.title("出席履歴")
-
-    # クラス・期間指定
-    classes = student_df[['学年', '組']].drop_duplicates().sort_values(by=['学年', '組'])
-    selected_class = st.selectbox("クラスを選択", classes.apply(lambda row: f"{row['学年']}_{row['組']}", axis=1))
-    grade, group = selected_class.split('_')
-
-    col1, col2 = st.columns(2)
-    start_date = col1.date_input("開始日", datetime(2024, 4, 1))
-    end_date = col2.date_input("終了日", datetime.today())
-
-    # ログ読み込み
-    df_log = pd.read_excel(attendance_file)
-    df_log["日付"] = pd.to_datetime(df_log["日付"])
-    df_filtered = df_log[
-        (df_log["学年"] == grade) &
-        (df_log["組"] == group) &
-        (df_log["日付"] >= pd.to_datetime(start_date)) &
-        (df_log["日付"] <= pd.to_datetime(end_date))
-    ]
-
-    # ピボットで区分ごとの合計集計
-    if not df_filtered.empty:
-        df_summary = df_filtered.pivot_table(
-            index=["番号", "氏名"],
-            columns="出欠",
-            aggfunc="size",
-            fill_value=0
-        ).reset_index()
-
-        df_summary = df_summary.sort_values(by="番号")
-        st.dataframe(df_summary)
-
-        # CSVエクスポート
-        csv = df_summary.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            label="📥 この集計結果をCSVでダウンロード",
-            data=csv,
-            file_name=f"{grade}_{group}_出席集計_{start_date}_{end_date}.csv",
-            mime="text/csv"
+    if st.button("📝 出席簿を保存"):
+        df = pd.DataFrame(attendance_records)
+        st.session_state.attendance_data = pd.concat(
+            [st.session_state.attendance_data, df], ignore_index=True
         )
+        st.success("✅ 出席データを保存しました")
+
+# --- 出席履歴ページ ---
+elif page == "📊 出席履歴":
+    st.title("📊 出席履歴（集計表示）")
+
+    if st.session_state.attendance_data.empty:
+        st.info("まだ出席データが登録されていません。")
     else:
-        st.warning("該当期間にデータがありません。")
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_grade = st.selectbox("📚 学年を選択", grades, key="hist_grade")
+        with col2:
+            selected_class = st.selectbox("🏫 組を選択", classes, key="hist_class")
+        class_name = f"{selected_grade}{selected_class}"
+
+        col3, col4 = st.columns(2)
+        with col3:
+            date_from = st.date_input("📆 期間開始日", datetime.today().replace(day=1))
+        with col4:
+            date_to = st.date_input("📆 期間終了日", datetime.today())
+
+        # フィルタリング
+        df = st.session_state.attendance_data.copy()
+        df["日付"] = pd.to_datetime(df["日付"])
+        df_filtered = df[
+            (df["クラス"] == class_name) &
+            (df["日付"] >= pd.to_datetime(date_from)) &
+            (df["日付"] <= pd.to_datetime(date_to))
+        ]
+
+        if df_filtered.empty:
+            st.warning("この期間・クラスには出席データがありません。")
+        else:
+            summary = df_filtered.groupby(["生徒名", "出席状況"]).size().unstack(fill_value=0)
+            summary = summary.reindex(columns=["出席", "欠席", "遅刻", "早退"], fill_value=0)
+            st.dataframe(summary)
