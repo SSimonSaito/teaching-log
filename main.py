@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import io
 
 # ------------------- データ読み込み -------------------
 subject_df = pd.read_excel("data/教科一覧.xlsx")
@@ -35,7 +36,7 @@ if page == "出席入力":
 
     col3, col4 = st.columns(2)
     with col3:
-        selected_date = st.date_input("日付", datetime.today())
+        selected_date = st.date_input("日付 ({}曜日)".format(["月", "火", "水", "木", "金", "土", "日"][datetime.today().weekday()]), datetime.today())
     with col4:
         selected_period = st.selectbox("時限", ["1限", "2限", "3限", "4限", "5限", "6限"])
 
@@ -116,7 +117,6 @@ elif page == "出席総計":
     if filtered_df.empty:
         st.info("指定範囲に出席データがありません")
     else:
-        # 生徒ごとに日単位で集計
         grouped = filtered_df.groupby(["生徒名", "日付"])["出席状況"].apply(list).reset_index()
 
         def summarize_day(status_list):
@@ -132,10 +132,18 @@ elif page == "出席総計":
         grouped["出席区分"] = grouped["出席状況"].apply(summarize_day)
         summary = grouped.groupby(["生徒名", "出席区分"]).size().unstack(fill_value=0)
 
-        # 生徒番号順に整列
         summary = summary.reindex(
             students_df[(students_df["学年"] == selected_grade) & (students_df["組"] == selected_class)].sort_values("番号")["氏名"].tolist(),
             fill_value=0
         )
 
         st.dataframe(summary)
+
+        csv_buffer = io.StringIO()
+        summary.to_csv(csv_buffer)
+        st.download_button(
+            label="CSVダウンロード",
+            data=csv_buffer.getvalue().encode('utf-8'),
+            file_name=f"{class_name}_出席集計.csv",
+            mime="text/csv"
+        )
