@@ -36,7 +36,9 @@ if page == "出席入力":
 
     col3, col4 = st.columns(2)
     with col3:
-        selected_date = st.date_input("日付 ({}曜日)".format(["月", "火", "水", "木", "金", "土", "日"][datetime.today().weekday()]), datetime.today())
+        selected_date = st.date_input("日付", datetime.today())
+    weekday_str_display = ["月", "火", "水", "木", "金", "土", "日"][selected_date.weekday()]
+    st.markdown(f"**選択した日付の曜日：{weekday_str_display}曜日**")
     with col4:
         selected_period = st.selectbox("時限", ["1限", "2限", "3限", "4限", "5限", "6限"])
 
